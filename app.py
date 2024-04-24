@@ -1,80 +1,99 @@
-import os
-from PyPDF2 import PdfReader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.vectorstores import FAISS
-from langchain.llama import LlamaEmbeddings  # Import LlamaEmbeddings
 import streamlit as st
 import replicate
-from langchain.chains.question_answering import load_qa_chain
-from langchain.prompts import PromptTemplate
+import os
+import faiss
+import numpy as np
+from transformers import pipeline
 
 # App title
 st.set_page_config(page_title="🦙💬 Llama 2 Chatbot")
 
-# Function to extract text from PDF
-def extract_text_from_pdf(uploaded_file):
-    pdf_reader = PdfReader(uploaded_file)
-    text = ''
-    for page_num in range(len(pdf_reader.pages)):
-        text += pdf_reader.pages[page_num].extract_text()
-    return text
+# Replicate Credentials
+with st.sidebar:
+    st.title('🦙💬 Llama 2 Chatbot')
+    if 'REPLICATE_API_TOKEN' in st.secrets:
+        st.success('API key already provided!', icon='✅')
+        replicate_api = st.secrets['REPLICATE_API_TOKEN']
+    else:
+        replicate_api = st.text_input('Enter Replicate API token:', type='password')
+        if not (replicate_api.startswith('r8_') and len(replicate_api)==40):
+            st.warning('Please enter your credentials!', icon='⚠️')
+        else:
+            st.success('Proceed to entering your prompt message!', icon='👉')
+    os.environ['REPLICATE_API_TOKEN'] = replicate_api
 
-# Upload multiple PDF files
-uploaded_files = st.file_uploader("Upload multiple PDF files", type=["pdf"], accept_multiple_files=True)
+    st.subheader('Models and parameters')
+    selected_model = st.sidebar.selectbox('Choose a Llama2 model', ['Llama2-7B', 'Llama2-13B'], key='selected_model')
+    if selected_model == 'Llama2-7B':
+        llm = 'a16z-infra/llama7b-v2-chat:4f0a4744c7295c024a1de15e1a63c880d3da035fa1f49bfd344fe076074c8eea'
+    elif selected_model == 'Llama2-13B':
+        llm = 'a16z-infra/llama13b-v2-chat:df7690f1994d94e96ad9d568eac121aecf50684a0b0963b25a41cc40061269e5'
+    temperature = st.sidebar.slider('temperature', min_value=0.01, max_value=5.0, value=0.1, step=0.01)
+    top_p = st.sidebar.slider('top_p', min_value=0.01, max_value=1.0, value=0.9, step=0.01)
+    max_length = st.sidebar.slider('max_length', min_value=32, max_value=128, value=120, step=8)
+    
+# Store LLM generated responses
+if "messages" not in st.session_state.keys():
+    st.session_state.messages = [{"role": "assistant", "content": "How may I assist you today?"}]
 
-if uploaded_files:
-    pdf_texts = []
-    for file in uploaded_files:
-        pdf_texts.append(extract_text_from_pdf(file))
-    st.success("PDF files uploaded successfully.")
+# Display or clear chat messages
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.write(message["content"])
 
-    # Store PDF texts in session state
-    st.session_state.pdf_texts = pdf_texts
+def clear_chat_history():
+    st.session_state.messages = [{"role": "assistant", "content": "How may I assist you today?"}]
+st.sidebar.button('Clear Chat History', on_click=clear_chat_history)
 
-# Function to split text into chunks
-def get_text_chunks(text):
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=10000, chunk_overlap=1000)
-    chunks = splitter.split_text(text)
-    return chunks  # list of strings
-
-# Function to generate LLaMA2 response
+# Function for generating LLaMA2 response. Refactored from https://github.com/a16z-infra/llama2-chatbot
 def generate_llama2_response(prompt_input):
-    string_dialogue = "You are a professional in understanding content from PDFs and answering any questions related to it. Understand the content provided and answer the questions appropriately. Ensure that the sentences you provide are grammatically correct. Answer the question as detailed as possible from the provided context, make sure to provide all the details, if the answer is not in provided context just say, 'answer is not available in the context', don't provide the wrong answer.\n\n"
+    string_dialogue = "You are a helpful assistant. You do not respond as 'User' or pretend to be 'User'. You only respond once as 'Assistant'."
     for dict_message in st.session_state.messages:
         if dict_message["role"] == "user":
-            string_dialogue += f"User: {dict_message['content']}\n\n"
+            string_dialogue += "User: " + dict_message["content"] + "\n\n"
         else:
-            string_dialogue += f"Assistant: {dict_message['content']}\n\n"
+            string_dialogue += "Assistant: " + dict_message["content"] + "\n\n"
+    
+    # Chunking text and generating embeddings
+    chunks = get_text_chunks(string_dialogue)
+    embeddings = get_embeddings(chunks)
 
-    output = replicate.run('allenai/longformer-qa-large-finetuned-squad', 
-                           input={"prompt": f"{string_dialogue} {prompt_input}"},
-                           temperature=0.7, top_p=0.9, max_length=120, repetition_penalty=1)
+    # Generate response using LLaMA2 model
+    output = replicate.run(llm, 
+                           input={"prompt": f"{string_dialogue} {prompt_input} Assistant: ",
+                                  "temperature":temperature, "top_p":top_p, "max_length":max_length, "repetition_penalty":1})
     return output
 
 # User-provided prompt
-if prompt := st.text_input("Ask a question about the uploaded PDF(s)", key="pdf_question"):
-    if "pdf_texts" in st.session_state:
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.write(prompt)
+if prompt := st.chat_input(disabled=not replicate_api):
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.write(prompt)
 
-        # Generate response based on PDF texts and user prompt
-        with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
-                combined_text = " ".join(st.session_state.pdf_texts)
-                response = generate_llama2_response(combined_text + " " + prompt)
-                placeholder = st.empty()
-                full_response = ''
-                for item in response:
-                    full_response += item
-                    placeholder.markdown(full_response)
+# Generate a new response if last message is not from assistant
+if st.session_state.messages[-1]["role"] != "assistant":
+    with st.chat_message("assistant"):
+        with st.spinner("Thinking..."):
+            response = generate_llama2_response(prompt)
+            placeholder = st.empty()
+            full_response = ''
+            for item in response:
+                full_response += item
                 placeholder.markdown(full_response)
-        message = {"role": "assistant", "content": full_response}
-        st.session_state.messages.append(message)
-    else:
-        st.warning("Please upload PDF files first.")
+            placeholder.markdown(full_response)
+    message = {"role": "assistant", "content": full_response}
+    st.session_state.messages.append(message)
 
-# Clear chat history
-if st.button('Clear Chat History'):
-    st.session_state.messages = [{"role": "assistant", "content": "How may I assist you today?"}]
+# Function to chunk text
+def get_text_chunks(text):
+    chunk_size = 10000
+    chunks = [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
+    return chunks
+
+# Function to generate embeddings using LLaMA2
+def get_embeddings(chunks):
+    nlp = pipeline("feature-extraction", model="a16z/llama-uncased")
+    embeddings = [nlp(chunk)[0] for chunk in chunks]
+    embedding_array = np.array(embeddings).squeeze()
+    return embedding_array
+
