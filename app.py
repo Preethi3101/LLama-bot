@@ -1,7 +1,7 @@
 import streamlit as st
 import replicate
 import os
-import faiss
+from langchain.vectorstores import FAISS
 import numpy as np
 from transformers import pipeline
 
