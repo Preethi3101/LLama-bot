@@ -1,9 +1,9 @@
 import streamlit as st
 import replicate
 import os
-from langchain.vectorstores import FAISS
+import faiss
 import numpy as np
-from transformers import pipeline
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
 # App title
 st.set_page_config(page_title="🦙💬 Llama 2 Chatbot")
@@ -11,27 +11,9 @@ st.set_page_config(page_title="🦙💬 Llama 2 Chatbot")
 # Replicate Credentials
 with st.sidebar:
     st.title('🦙💬 Llama 2 Chatbot')
-    if 'REPLICATE_API_TOKEN' in st.secrets:
-        st.success('API key already provided!', icon='✅')
-        replicate_api = st.secrets['REPLICATE_API_TOKEN']
-    else:
-        replicate_api = st.text_input('Enter Replicate API token:', type='password')
-        if not (replicate_api.startswith('r8_') and len(replicate_api)==40):
-            st.warning('Please enter your credentials!', icon='⚠️')
-        else:
-            st.success('Proceed to entering your prompt message!', icon='👉')
+    replicate_api = 'YOUR_REPLICATE_API_KEY'
     os.environ['REPLICATE_API_TOKEN'] = replicate_api
 
-    st.subheader('Models and parameters')
-    selected_model = st.sidebar.selectbox('Choose a Llama2 model', ['Llama2-7B', 'Llama2-13B'], key='selected_model')
-    if selected_model == 'Llama2-7B':
-        llm = 'a16z-infra/llama7b-v2-chat:4f0a4744c7295c024a1de15e1a63c880d3da035fa1f49bfd344fe076074c8eea'
-    elif selected_model == 'Llama2-13B':
-        llm = 'a16z-infra/llama13b-v2-chat:df7690f1994d94e96ad9d568eac121aecf50684a0b0963b25a41cc40061269e5'
-    temperature = st.sidebar.slider('temperature', min_value=0.01, max_value=5.0, value=0.1, step=0.01)
-    top_p = st.sidebar.slider('top_p', min_value=0.01, max_value=1.0, value=0.9, step=0.01)
-    max_length = st.sidebar.slider('max_length', min_value=32, max_value=128, value=120, step=8)
-    
 # Store LLM generated responses
 if "messages" not in st.session_state.keys():
     st.session_state.messages = [{"role": "assistant", "content": "How may I assist you today?"}]
@@ -41,24 +23,11 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.write(message["content"])
 
-# Function to chunk text
-def get_text_chunks(text):
-    chunk_size = 10000
-    chunks = [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
-    return chunks
-
-# Function to generate embeddings using LLaMA2
-def get_embeddings(chunks):
-    nlp = pipeline("feature-extraction", model="a16z/llama-uncased")
-    embeddings = [nlp(chunk)[0] for chunk in chunks]
-    embedding_array = np.array(embeddings).squeeze()
-    return embedding_array
-    
 def clear_chat_history():
     st.session_state.messages = [{"role": "assistant", "content": "How may I assist you today?"}]
 st.sidebar.button('Clear Chat History', on_click=clear_chat_history)
 
-# Function for generating LLaMA2 response. Refactored from https://github.com/a16z-infra/llama2-chatbot
+# Function for generating LLaMA2 response
 def generate_llama2_response(prompt_input):
     string_dialogue = "You are a helpful assistant. You do not respond as 'User' or pretend to be 'User'. You only respond once as 'Assistant'."
     for dict_message in st.session_state.messages:
@@ -66,15 +35,16 @@ def generate_llama2_response(prompt_input):
             string_dialogue += "User: " + dict_message["content"] + "\n\n"
         else:
             string_dialogue += "Assistant: " + dict_message["content"] + "\n\n"
-    
+
     # Chunking text and generating embeddings
     chunks = get_text_chunks(string_dialogue)
     embeddings = get_embeddings(chunks)
 
     # Generate response using LLaMA2 model
+    llm = 'a16z-infra/llama13b-v2-chat:df7690f1994d94e96ad9d568eac121aecf50684a0b0963b25a41cc40061269e5'
     output = replicate.run(llm, 
                            input={"prompt": f"{string_dialogue} {prompt_input} Assistant: ",
-                                  "temperature":temperature, "top_p":top_p, "max_length":max_length, "repetition_penalty":1})
+                                  "temperature":0.1, "top_p":0.9, "max_length":120, "repetition_penalty":1})
     return output
 
 # User-provided prompt
@@ -97,4 +67,18 @@ if st.session_state.messages[-1]["role"] != "assistant":
     message = {"role": "assistant", "content": full_response}
     st.session_state.messages.append(message)
 
+# Function to chunk text
+def get_text_chunks(text):
+    chunk_size = 10000
+    chunks = [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
+    return chunks
 
+# Function to generate embeddings using Google Generative AI
+def get_embeddings(chunks):
+    embeddings = []
+    embeddings_model = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+    for chunk in chunks:
+        embedding = embeddings_model.encode_text(chunk)
+        embeddings.append(embedding)
+    embedding_array = np.array(embeddings).squeeze()
+    return embedding_array
