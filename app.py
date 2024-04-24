@@ -22,7 +22,21 @@ if "messages" not in st.session_state.keys():
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.write(message["content"])
+# Function to chunk text
+def get_text_chunks(text):
+    chunk_size = 10000
+    chunks = [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
+    return chunks
 
+# Function to generate embeddings using Google Generative AI
+def get_embeddings(chunks):
+    embeddings = []
+    embeddings_model = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+    for chunk in chunks:
+        embedding = embeddings_model.encode_text(chunk)
+        embeddings.append(embedding)
+    embedding_array = np.array(embeddings).squeeze()
+    return embedding_array
 def clear_chat_history():
     st.session_state.messages = [{"role": "assistant", "content": "How may I assist you today?"}]
 st.sidebar.button('Clear Chat History', on_click=clear_chat_history)
@@ -67,18 +81,4 @@ if st.session_state.messages[-1]["role"] != "assistant":
     message = {"role": "assistant", "content": full_response}
     st.session_state.messages.append(message)
 
-# Function to chunk text
-def get_text_chunks(text):
-    chunk_size = 10000
-    chunks = [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
-    return chunks
 
-# Function to generate embeddings using Google Generative AI
-def get_embeddings(chunks):
-    embeddings = []
-    embeddings_model = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-    for chunk in chunks:
-        embedding = embeddings_model.encode_text(chunk)
-        embeddings.append(embedding)
-    embedding_array = np.array(embeddings).squeeze()
-    return embedding_array
