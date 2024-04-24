@@ -1,7 +1,6 @@
 langchain==0.1.16
 langchain_google_genai==1.0.2
 openai==0.28.0
-protobuf==4.26.1
 PyPDF2==3.0.1
 python-dotenv==1.0.1
 streamlit==1.33.0
