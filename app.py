@@ -1,8 +1,7 @@
 import streamlit as st
 import replicate
 import os
-from PyPDF2 import PdfFileReader
-from typing import List
+from PyPDF2 import PdfReader  # Import PdfReader instead of PdfFileReader
 
 # App title
 st.set_page_config(page_title="🦙💬 Llama 2 Chatbot")
@@ -23,10 +22,10 @@ with st.sidebar:
 
 # Function to extract text from PDF
 def extract_text_from_pdf(uploaded_file):
-    pdf_reader = PdfFileReader(uploaded_file)
+    pdf_reader = PdfReader(uploaded_file)
     text = ''
-    for page_num in range(pdf_reader.getNumPages()):
-        text += pdf_reader.getPage(page_num).extractText()
+    for page_num in range(len(pdf_reader.pages)):
+        text += pdf_reader.pages[page_num].extract_text()
     return text
 
 # Upload multiple PDF files
