@@ -22,6 +22,10 @@ if "messages" not in st.session_state.keys():
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.write(message["content"])
+
+def clear_chat_history():
+    st.session_state.messages = [{"role": "assistant", "content": "How may I assist you today?"}]
+st.sidebar.button('Clear Chat History', on_click=clear_chat_history)
 # Function to chunk text
 def get_text_chunks(text):
     chunk_size = 10000
@@ -37,10 +41,6 @@ def get_embeddings(chunks):
         embeddings.append(embedding)
     embedding_array = np.array(embeddings).squeeze()
     return embedding_array
-def clear_chat_history():
-    st.session_state.messages = [{"role": "assistant", "content": "How may I assist you today?"}]
-st.sidebar.button('Clear Chat History', on_click=clear_chat_history)
-
 # Function for generating LLaMA2 response
 def generate_llama2_response(prompt_input):
     string_dialogue = "You are a helpful assistant. You do not respond as 'User' or pretend to be 'User'. You only respond once as 'Assistant'."
@@ -58,7 +58,8 @@ def generate_llama2_response(prompt_input):
     llm = 'a16z-infra/llama13b-v2-chat:df7690f1994d94e96ad9d568eac121aecf50684a0b0963b25a41cc40061269e5'
     output = replicate.run(llm, 
                            input={"prompt": f"{string_dialogue} {prompt_input} Assistant: ",
-                                  "temperature":0.1, "top_p":0.9, "max_length":120, "repetition_penalty":1})
+                                  "temperature":0.1, "top_p":0.9, "max_length":120, "repetition_penalty":1},
+                           api_token=replicate_api)  # Pass the Replicate API key here
     return output
 
 # User-provided prompt
