@@ -1,24 +1,15 @@
+import os
+from PyPDF2 import PdfReader
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.vectorstores import FAISS
+from langchain.llama import LlamaEmbeddings  # Import LlamaEmbeddings
 import streamlit as st
 import replicate
-import os
-from PyPDF2 import PdfReader  # Import PdfReader instead of PdfFileReader
+from langchain.chains.question_answering import load_qa_chain
+from langchain.prompts import PromptTemplate
 
 # App title
 st.set_page_config(page_title="🦙💬 Llama 2 Chatbot")
-
-# Replicate Credentials
-with st.sidebar:
-    st.title('🦙💬 Llama 2 Chatbot')
-    if 'REPLICATE_API_TOKEN' in st.secrets:
-        st.success('API key already provided!', icon='✅')
-        replicate_api = st.secrets['REPLICATE_API_TOKEN']
-    else:
-        replicate_api = st.text_input('Enter Replicate API token:', type='password')
-        if not (replicate_api.startswith('r8_') and len(replicate_api)==40):
-            st.warning('Please enter your credentials!', icon='⚠️')
-        else:
-            st.success('Proceed to entering your prompt message!', icon='👉')
-    os.environ['REPLICATE_API_TOKEN'] = replicate_api
 
 # Function to extract text from PDF
 def extract_text_from_pdf(uploaded_file):
@@ -40,21 +31,29 @@ if uploaded_files:
     # Store PDF texts in session state
     st.session_state.pdf_texts = pdf_texts
 
-# Function for generating LLaMA2 response
+# Function to split text into chunks
+def get_text_chunks(text):
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=10000, chunk_overlap=1000)
+    chunks = splitter.split_text(text)
+    return chunks  # list of strings
+
+# Function to generate LLaMA2 response
 def generate_llama2_response(prompt_input):
-    string_dialogue = "You are a helpful assistant. You do not respond as 'User' or pretend to be 'User'. You only respond once as 'Assistant'."
+    string_dialogue = "You are a professional in understanding content from PDFs and answering any questions related to it. Understand the content provided and answer the questions appropriately. Ensure that the sentences you provide are grammatically correct. Answer the question as detailed as possible from the provided context, make sure to provide all the details, if the answer is not in provided context just say, 'answer is not available in the context', don't provide the wrong answer.\n\n"
     for dict_message in st.session_state.messages:
         if dict_message["role"] == "user":
-            string_dialogue += "User: " + dict_message["content"] + "\n\n"
+            string_dialogue += f"User: {dict_message['content']}\n\n"
         else:
-            string_dialogue += "Assistant: " + dict_message["content"] + "\n\n"
-    output = replicate.run('a16z-infra/llama13b-v2-chat:df7690f1994d94e96ad9d568eac121aecf50684a0b0963b25a41cc40061269e5', 
-                           input={"prompt": f"{string_dialogue} {prompt_input} Assistant: ",
-                                  "temperature":0.7, "top_p":0.9, "max_length":120, "repetition_penalty":1})
+            string_dialogue += f"Assistant: {dict_message['content']}\n\n"
+
+    output = replicate.run('allenai/longformer-qa-large-finetuned-squad', 
+                           input={"prompt": f"{string_dialogue} {prompt_input}"},
+                           temperature=0.7, top_p=0.9, max_length=120, repetition_penalty=1)
     return output
 
 # User-provided prompt
-if prompt := st.text_input("Ask a question about the uploaded PDF(s)", key="pdf_question", disabled=not replicate_api):
+if prompt := st.text_input("Ask a question about the uploaded PDF(s)", key="pdf_question"):
     if "pdf_texts" in st.session_state:
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
