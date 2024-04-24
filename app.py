@@ -7,6 +7,8 @@ from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
 # App title
 st.set_page_config(page_title="🦙💬 Llama 2 Chatbot")
+google_api = 'YOUR_GOOGLE_API_KEY'
+    os.environ['GOOGLE_API_KEY'] = google_api
 
 # Replicate Credentials
 with st.sidebar:
